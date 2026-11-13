@@ -3,7 +3,7 @@ import { Sandbox } from '@vercel/sandbox';
 import type { AppConfig } from './config.js';
 import type { FactoryRequest } from './request.js';
 
-const SANDBOX_TIMEOUT_MS = 20 * 60 * 1000;
+const SANDBOX_TIMEOUT_MS = 30 * 60 * 1000;
 const SANDBOX_VCPUS = 2;
 
 export interface ExecOptions {
@@ -14,11 +14,15 @@ export interface ExecOptions {
   timeoutMs?: number;
   sudo?: boolean;
   signal?: AbortSignal;
+  silent?: boolean;
 }
 
 export interface ExecResult {
   exitCode: number;
   durationMs: number;
+  stdout: string;
+  stderr: string;
+  output: string;
 }
 
 export async function createSandbox(
@@ -98,12 +102,19 @@ export async function exec(sandbox: Sandbox, options: ExecOptions): Promise<Exec
     timeoutMs: options.timeoutMs,
     sudo: options.sudo,
     signal: options.signal,
-    stdout: process.stdout,
-    stderr: process.stderr,
+    stdout: options.silent ? undefined : process.stdout,
+    stderr: options.silent ? undefined : process.stderr,
   });
+
+  const stdout = await result.stdout().catch(() => '');
+  const stderr = await result.stderr().catch(() => '');
+  const output = (stdout + (stderr ? (stdout ? '\n' : '') + stderr : '')).trim();
 
   return {
     exitCode: result.exitCode,
     durationMs: result.durationMs ?? Date.now() - startedAt,
+    stdout,
+    stderr,
+    output,
   };
 }
