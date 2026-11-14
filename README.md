@@ -43,7 +43,8 @@ TypeScript CLI that provisions an ephemeral Vercel Sandbox, clones a target repo
 | `MAX_AGENT_STEPS` | No | Maximum steps per agent run (default: `25`) |
 | `MAX_REPAIR_ROUNDS` | No | Maximum repair rounds (default: `3`) |
 | `DENY_NETWORK_AFTER_INSTALL` | No | Set to `true` to lock network after install (default: `false`) |
-| `GITHUB_TOKEN` | No | Optional GitHub token for private repositories |
+| `GITHUB_TOKEN` | No | Optional GitHub token for clone authentication on private repositories |
+| `GITHUB_PR_TOKEN` | Only with `--pr` | Fine-grained GitHub personal access token with **Contents** (read & write) and **Pull requests** (read & write) permissions on the target fork only |
 
 ## Local Usage
 
@@ -58,7 +59,8 @@ TypeScript CLI that provisions an ephemeral Vercel Sandbox, clones a target repo
    vercel env pull
    # Add your Gemini key and model to .env.local:
    # GOOGLE_GENERATIVE_AI_API_KEY=...
-   # GEMINI_MODEL=gemini-3.5-flash
+   # GEMINI_MODEL=gemini-3.5-flash-lite
+   # GITHUB_PR_TOKEN=... (if using --pr)
    ```
 
 3. Typecheck and build:
@@ -77,11 +79,15 @@ TypeScript CLI that provisions an ephemeral Vercel Sandbox, clones a target repo
    pnpm dev "<task text>" [options]
 
    Options:
-     --repo <url>          Target Git repository URL
-     --ref <ref>           Target Git branch, commit, or tag
+     --repo <url>          Target Git repository URL (must be your fork for --pr)
+     --ref <ref>           Target Git branch, commit, or tag (default: main)
      --max-rounds <n>      Maximum repair rounds (overrides MAX_REPAIR_ROUNDS)
      --skip-baseline       Skip baseline check suite run
      --deny-network        Deny network in sandbox after installation
+     --blind               In round 0, agent gets no runCheck and skips self-check instruction
+     --inject-fault        Append deliberate TypeScript error before gate to test repair loop
+     --pr                  Open a draft pull request on the fork after gate passes
+     --pr-dry-run          Print PR branch, commit message and body without calling GitHub
      -h, --help            Show help message
    ```
 
@@ -93,6 +99,7 @@ In Docker containers, access tokens and IDs are passed at runtime via `.env`:
    ```bash
    cp .env.example .env
    ```
+   If using `--pr`, ensure `GITHUB_PR_TOKEN` has contents & pull-requests write on your fork.
 
 2. Build the Docker image:
    ```bash
@@ -101,5 +108,5 @@ In Docker containers, access tokens and IDs are passed at runtime via `.env`:
 
 3. Run the container:
    ```bash
-   docker run --rm --env-file .env software-factory "Add a testimonial document type with name, quote and author"
+   docker run --rm --env-file .env software-factory "Add a testimonial document type with name, quote and author" --pr
    ```

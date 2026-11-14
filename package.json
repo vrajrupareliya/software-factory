@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.120",
+    "@octokit/rest": "^22.0.1",
     "@vercel/sandbox": "latest",
     "ai": "^7.0.172",
     "zod": "latest"

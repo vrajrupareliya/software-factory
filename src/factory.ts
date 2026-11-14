@@ -24,6 +24,7 @@ import {
   type StepResult,
 } from './steps.js';
 import { createSandboxTools, type ToolCallTracker } from './tools.js';
+import { handlePr, type PrResult } from './pr.js';
 
 export interface FactoryOptions {
   skipBaseline?: boolean;
@@ -31,6 +32,8 @@ export interface FactoryOptions {
   denyNetworkAfterInstall?: boolean;
   blind?: boolean;
   injectFault?: boolean;
+  pr?: boolean;
+  prDryRun?: boolean;
 }
 
 export interface RoundCheckStatus {
@@ -95,6 +98,7 @@ export interface RunReport {
   totalDurationMs: number;
   cpuUsageMs: number | null;
   runDir?: string;
+  pr?: PrResult;
 }
 
 const MAX_DIFF_PRINT_CHARS = 10_000;
@@ -156,6 +160,7 @@ export async function runFactory(
   const roundsTable: RoundTableEntry[] = [];
   let selfRepairs: SelfRepairReport = { count: 0, checks: [] };
   let faultInjected = false;
+  let prResult: PrResult | undefined;
   let finalSummary = '';
   let filesChanged: string[] = [];
   let rawDiff = '';
@@ -521,6 +526,27 @@ export async function runFactory(
     }
     console.log('\n=== Git Diff ===');
     console.log(fullDiff || '(no changes)');
+
+    // Handle PR creation or dry-run if gate passed and PR was requested
+    if (gatePassed && !interrupted && (options?.pr || options?.prDryRun)) {
+      prResult = await handlePr({
+        sandbox,
+        repoDir,
+        request,
+        dryRun: options.prDryRun,
+        token: config.githubPrToken,
+        geminiModel: config.geminiModel,
+        finalSummary,
+        baseline: baselineResults,
+        rounds,
+        roundsUsed,
+        selfRepairs,
+        agentSteps: totalAgentSteps,
+        tokenUsage: totalTokenUsage,
+        cpuUsageMs: sandbox.activeCpuUsageMs ?? null,
+        signal: controller.signal,
+      });
+    }
   } finally {
     process.removeListener('SIGINT', onSigint);
     cpuUsageMs = await stopSandboxOnce();
@@ -596,6 +622,7 @@ export async function runFactory(
     totalDurationMs: Date.now() - totalStartedAt,
     cpuUsageMs,
     runDir: relRunDir,
+    ...(options?.pr || options?.prDryRun || prResult ? { pr: prResult } : {}),
   };
 
   try {

@@ -14,6 +14,8 @@ function printUsage(): void {
       '  --deny-network        Deny network in sandbox after installation\n' +
       '  --blind               In round 0, agent gets no runCheck and skips self-check instruction\n' +
       '  --inject-fault        Append deliberate TypeScript error before gate to test repair loop\n' +
+      '  --pr                  Create a draft pull request on the fork after gate passes\n' +
+      '  --pr-dry-run          Print PR branch, commit message and body without calling GitHub\n' +
       '  -h, --help            Show this help message\n',
   );
 }
@@ -30,6 +32,8 @@ async function main(): Promise<void> {
       'deny-network': { type: 'boolean' },
       blind: { type: 'boolean' },
       'inject-fault': { type: 'boolean' },
+      pr: { type: 'boolean' },
+      'pr-dry-run': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -46,7 +50,34 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (values.pr && values['pr-dry-run']) {
+    console.error('Error: Cannot combine --pr with --pr-dry-run.');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (values.pr && values['inject-fault']) {
+    console.error('Error: Cannot combine --pr with --inject-fault.');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (values.pr && values.blind) {
+    console.error('Error: Cannot combine --pr with --blind.');
+    process.exitCode = 1;
+    return;
+  }
+
   const config = loadConfig();
+
+  if (values.pr && !config.githubPrToken) {
+    console.error(
+      'Error: Missing required environment variable: GITHUB_PR_TOKEN (required with --pr).',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const request = FactoryRequestSchema.parse({
     task,
     repoUrl: values.repo ?? config.defaultRepoUrl,
@@ -66,6 +97,8 @@ async function main(): Promise<void> {
     denyNetworkAfterInstall: values['deny-network'],
     blind: values.blind,
     injectFault: values['inject-fault'],
+    pr: values.pr,
+    prDryRun: values['pr-dry-run'],
   };
 
   console.log(`Task: ${request.task}`);
@@ -83,6 +116,9 @@ async function main(): Promise<void> {
   );
   console.log(`Blind mode: ${options.blind ? 'enabled' : 'disabled'}`);
   console.log(`Inject fault: ${options.injectFault ? 'enabled' : 'disabled'}`);
+  console.log(
+    `PR creation: ${options.pr ? 'enabled' : options.prDryRun ? 'dry-run' : 'disabled'}`,
+  );
 
   const report = await runFactory(request, config, options);
 
@@ -91,10 +127,17 @@ async function main(): Promise<void> {
   if (report.runDir) {
     console.log(`\nRun saved to: ${report.runDir}`);
   }
+  if (report.pr?.url) {
+    console.log(report.pr.url);
+  }
   process.exitCode = report.success ? 0 : 1;
 }
 
 main().catch((err) => {
-  console.error('\nFatal error:', err instanceof Error ? err.message : err);
+  const msg = err instanceof Error ? err.message : String(err);
+  const token = process.env.GITHUB_PR_TOKEN;
+  const cleanMsg =
+    token && token.trim() ? msg.replaceAll(token, '[REDACTED_GITHUB_PR_TOKEN]') : msg;
+  console.error('\nFatal error:', cleanMsg);
   process.exitCode = 1;
 });

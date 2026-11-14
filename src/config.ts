@@ -61,6 +61,7 @@ const EnvSchema = z
     SANITY_STUDIO_DATASET: optionalNonEmpty,
     NEXT_PUBLIC_SANITY_PROJECT_ID: optionalNonEmpty,
     NEXT_PUBLIC_SANITY_DATASET: optionalNonEmpty,
+    GITHUB_PR_TOKEN: optionalNonEmpty,
   })
   .superRefine((env, ctx) => {
     const hasAllAccessToken = Boolean(
@@ -100,6 +101,7 @@ export interface AppConfig {
   defaultRepoUrl: string;
   defaultRepoRef: string;
   githubToken?: string;
+  githubPrToken?: string;
   googleApiKey: string;
   geminiModel: string;
   maxAgentSteps: number;
@@ -155,6 +157,7 @@ export function loadConfig(): AppConfig {
     defaultRepoUrl: env.REPO_URL ?? DEFAULT_REPO_URL,
     defaultRepoRef: env.REPO_REF ?? DEFAULT_REPO_REF,
     githubToken: env.GITHUB_TOKEN,
+    githubPrToken: env.GITHUB_PR_TOKEN,
     googleApiKey: env.GOOGLE_GENERATIVE_AI_API_KEY as string,
     geminiModel: env.GEMINI_MODEL as string,
     maxAgentSteps: env.MAX_AGENT_STEPS,
