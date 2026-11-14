@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Sandbox } from '@vercel/sandbox';
-import { runAgent } from './agent.js';
+import {
+  runAgent,
+  SYSTEM_INSTRUCTIONS,
+  SYSTEM_INSTRUCTIONS_BLIND,
+} from './agent.js';
 import {
   checkSanitySchemaValidateSupported,
   formatChangedFiles,
@@ -25,6 +29,8 @@ export interface FactoryOptions {
   skipBaseline?: boolean;
   maxRepairRounds?: number;
   denyNetworkAfterInstall?: boolean;
+  blind?: boolean;
+  injectFault?: boolean;
 }
 
 export interface RoundCheckStatus {
@@ -47,6 +53,22 @@ export interface RoundStepTokenUsage {
   totalTokens: number;
 }
 
+export interface SelfRepairReport {
+  count: number;
+  checks: string[];
+}
+
+export interface RoundTableEntry {
+  round: number;
+  failingChecks: string[];
+  durationMs: number;
+  tokens: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+}
+
 export interface RunReport {
   task: string;
   repoUrl: string;
@@ -65,6 +87,9 @@ export interface RunReport {
     totalTokens: number;
   };
   topStepsByInputTokens: RoundStepTokenUsage[];
+  selfRepairs: SelfRepairReport;
+  faultInjected: boolean;
+  roundsTable: RoundTableEntry[];
   filesChanged: string[];
   finalSummary: string;
   totalDurationMs: number;
@@ -128,6 +153,9 @@ export async function runFactory(
   let totalAgentSteps = 0;
   const totalTokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
   const allStepUsages: RoundStepTokenUsage[] = [];
+  const roundsTable: RoundTableEntry[] = [];
+  let selfRepairs: SelfRepairReport = { count: 0, checks: [] };
+  let faultInjected = false;
   let finalSummary = '';
   let filesChanged: string[] = [];
   let rawDiff = '';
@@ -239,15 +267,34 @@ export async function runFactory(
       tracker,
     );
 
+    const isBlind = Boolean(options?.blind);
+    const round0Tools = isBlind
+      ? {
+          listFiles: tools.listFiles,
+          readFile: tools.readFile,
+          writeFile: tools.writeFile,
+        }
+      : tools;
+    const round0Instructions = isBlind
+      ? SYSTEM_INSTRUCTIONS_BLIND
+      : SYSTEM_INSTRUCTIONS;
+
+    // Track round 0 check calls specifically for selfRepairs
+    tracker.checkCalls = [];
+
     // Initial agent run (Round 0)
-    console.log('\n=== Round 0: Agent Ticket Execution ===');
+    console.log(
+      `\n=== Round 0: Agent Ticket Execution${isBlind ? ' [BLIND MODE]' : ''} ===`,
+    );
+    const round0StartedAt = Date.now();
     const initialPrompt = `Ticket / Task Request:\n${request.task}`;
     const agentResult = await runAgent(
       initialPrompt,
-      tools,
+      round0Tools,
       config,
       tracker,
       controller.signal,
+      round0Instructions,
     );
 
     totalAgentSteps += agentResult.stepsCount;
@@ -263,6 +310,48 @@ export async function runFactory(
         outputTokens: su.outputTokens,
         totalTokens: su.totalTokens,
       });
+    }
+
+    const round0FailedCheckCalls = (tracker.checkCalls ?? [])
+      .filter((c) => c.exitCode !== 0)
+      .map((c) => c.name);
+    selfRepairs = {
+      count: round0FailedCheckCalls.length,
+      checks: round0FailedCheckCalls,
+    };
+
+    // Optional fault injection before gate
+    if (options?.injectFault) {
+      const changedStatusRes = await exec(sandbox, {
+        cmd: 'git',
+        args: ['ls-files', '-m', '-o', '--exclude-standard'],
+        cwd: repoDir,
+        silent: true,
+        signal: controller.signal,
+      });
+      const changedTsFiles = changedStatusRes.output
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(
+          (l) => (l.endsWith('.ts') || l.endsWith('.tsx')) && !l.endsWith('.d.ts'),
+        );
+
+      if (changedTsFiles.length > 0 && changedTsFiles[0]) {
+        const targetFile = changedTsFiles[0];
+        const fullTargetPath = path.posix.join(repoDir, targetFile);
+        const existingContent = await sandbox.fs.readFile(fullTargetPath, 'utf8');
+        const faultLine = '\nexport const __factoryFault: number = "x";\n';
+        await sandbox.fs.writeFile(fullTargetPath, existingContent + faultLine);
+        console.log('\nFAULT INJECTED');
+        console.log(
+          `Deliberate type error injected into ${targetFile}: export const __factoryFault: number = "x";`,
+        );
+        faultInjected = true;
+      } else {
+        console.warn(
+          '\nWarning: --inject-fault requested but no changed .ts files found to inject into.',
+        );
+      }
     }
 
     // Format only the files the agent changed before the gate
@@ -281,16 +370,29 @@ export async function runFactory(
     );
 
     gatePassed = gateSuite.gatePassed;
+    const round0DurationMs = Date.now() - round0StartedAt;
+    const round0FailingChecks = Object.values(gateSuite.checks)
+      .filter((c) => c.exitCode !== 0 && !c.preexisting)
+      .map((c) => c.name);
+
     rounds.push({
       round: 0,
       checks: toRoundCheckStatus(gateSuite.checks),
       gatePassed,
     });
 
+    roundsTable.push({
+      round: 0,
+      failingChecks: round0FailingChecks,
+      durationMs: round0DurationMs,
+      tokens: { ...agentResult.usage },
+    });
+
     // Verify-and-repair loop
     while (!gatePassed && roundsUsed < maxRepairRounds) {
       roundsUsed++;
       console.log(`\n=== Repair Round ${roundsUsed}/${maxRepairRounds} ===`);
+      const roundStartedAt = Date.now();
 
       const failingChecks = Object.values(gateSuite.checks).filter(
         (c) => c.exitCode !== 0 && !c.preexisting,
@@ -331,6 +433,7 @@ export async function runFactory(
         config,
         tracker,
         controller.signal,
+        SYSTEM_INSTRUCTIONS,
       );
 
       totalAgentSteps += repairResult.stepsCount;
@@ -363,10 +466,22 @@ export async function runFactory(
       );
 
       gatePassed = gateSuite.gatePassed;
+      const roundDurationMs = Date.now() - roundStartedAt;
+      const roundFailingChecks = Object.values(gateSuite.checks)
+        .filter((c) => c.exitCode !== 0 && !c.preexisting)
+        .map((c) => c.name);
+
       rounds.push({
         round: roundsUsed,
         checks: toRoundCheckStatus(gateSuite.checks),
         gatePassed,
+      });
+
+      roundsTable.push({
+        round: roundsUsed,
+        failingChecks: roundFailingChecks,
+        durationMs: roundDurationMs,
+        tokens: { ...repairResult.usage },
       });
 
       if (gatePassed) {
@@ -426,6 +541,35 @@ export async function runFactory(
     }
   }
 
+  if (roundsTable.length > 0) {
+    console.log('\n=== Per-Round Table ===');
+    console.table(
+      roundsTable.map((r) => ({
+        Round: r.round,
+        'Failing Checks':
+          r.failingChecks.length > 0 ? r.failingChecks.join(', ') : '(none)',
+        Duration: `${(r.durationMs / 1000).toFixed(1)}s`,
+        'Prompt Tokens': r.tokens.promptTokens,
+        'Completion Tokens': r.tokens.completionTokens,
+        'Total Tokens': r.tokens.totalTokens,
+      })),
+    );
+    console.log(
+      '\n| Round | Failing Checks | Duration | Prompt Tokens | Completion Tokens | Total Tokens |',
+    );
+    console.log(
+      '|-------|----------------|----------|---------------|-------------------|--------------|',
+    );
+    for (const r of roundsTable) {
+      const fc =
+        r.failingChecks.length > 0 ? r.failingChecks.join(', ') : '(none)';
+      const dur = `${(r.durationMs / 1000).toFixed(1)}s`;
+      console.log(
+        `| ${r.round} | ${fc} | ${dur} | ${r.tokens.promptTokens} | ${r.tokens.completionTokens} | ${r.tokens.totalTokens} |`,
+      );
+    }
+  }
+
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const runDir = path.resolve(process.cwd(), 'runs', timestamp);
   const relRunDir = path.relative(process.cwd(), runDir).replace(/\\/g, '/');
@@ -444,6 +588,9 @@ export async function runFactory(
     toolCallCounts: tracker.counts,
     tokenUsage: totalTokenUsage,
     topStepsByInputTokens,
+    selfRepairs,
+    faultInjected,
+    roundsTable,
     filesChanged,
     finalSummary,
     totalDurationMs: Date.now() - totalStartedAt,

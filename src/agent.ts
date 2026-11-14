@@ -1,7 +1,7 @@
 import { createGoogle } from '@ai-sdk/google';
-import { isStepCount, ToolLoopAgent } from 'ai';
+import { isStepCount, ToolLoopAgent, type ToolSet } from 'ai';
 import type { AppConfig } from './config.js';
-import type { createSandboxTools, ToolCallTracker } from './tools.js';
+import type { ToolCallTracker } from './tools.js';
 
 export interface StepTokenUsage {
   step: number;
@@ -22,12 +22,20 @@ export interface AgentRunResult {
   stepUsages: StepTokenUsage[];
 }
 
-const SYSTEM_INSTRUCTIONS = [
+export const SYSTEM_INSTRUCTIONS = [
   'Read CONVENTIONS.md and CLAUDE.md first.',
   'Copy the nearest existing example.',
   'Smallest possible change.',
   'Never hand-edit generated files, run typegen via runCheck.',
   'Run checks yourself before finishing.',
+  'End with a brief summary of files changed and why.',
+].join('\n');
+
+export const SYSTEM_INSTRUCTIONS_BLIND = [
+  'Read CONVENTIONS.md and CLAUDE.md first.',
+  'Copy the nearest existing example.',
+  'Smallest possible change.',
+  'Never hand-edit generated files, run typegen via runCheck.',
   'End with a brief summary of files changed and why.',
 ].join('\n');
 
@@ -97,10 +105,11 @@ async function runWithRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T
 
 export async function runAgent(
   userPrompt: string,
-  tools: ReturnType<typeof createSandboxTools>,
+  tools: ToolSet,
   config: AppConfig,
   tracker: ToolCallTracker,
   signal?: AbortSignal,
+  instructions: string = SYSTEM_INSTRUCTIONS,
 ): Promise<AgentRunResult> {
   const google = createGoogle({
     apiKey: config.googleApiKey,
@@ -112,7 +121,7 @@ export async function runAgent(
     stepUsages.length = 0;
     const agent = new ToolLoopAgent({
       model: google(config.geminiModel),
-      instructions: SYSTEM_INSTRUCTIONS,
+      instructions,
       tools,
       stopWhen: isStepCount(config.maxAgentSteps),
       onStepFinish: async (step) => {

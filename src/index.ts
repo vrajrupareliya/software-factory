@@ -12,6 +12,8 @@ function printUsage(): void {
       '  --max-rounds <n>      Maximum repair rounds (overrides MAX_REPAIR_ROUNDS)\n' +
       '  --skip-baseline       Skip baseline check suite run\n' +
       '  --deny-network        Deny network in sandbox after installation\n' +
+      '  --blind               In round 0, agent gets no runCheck and skips self-check instruction\n' +
+      '  --inject-fault        Append deliberate TypeScript error before gate to test repair loop\n' +
       '  -h, --help            Show this help message\n',
   );
 }
@@ -26,6 +28,8 @@ async function main(): Promise<void> {
       'max-rounds': { type: 'string' },
       'skip-baseline': { type: 'boolean' },
       'deny-network': { type: 'boolean' },
+      blind: { type: 'boolean' },
+      'inject-fault': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -60,6 +64,8 @@ async function main(): Promise<void> {
         ? parsedMaxRounds
         : undefined,
     denyNetworkAfterInstall: values['deny-network'],
+    blind: values.blind,
+    injectFault: values['inject-fault'],
   };
 
   console.log(`Task: ${request.task}`);
@@ -75,6 +81,8 @@ async function main(): Promise<void> {
   console.log(
     `Deny network after install: ${options.denyNetworkAfterInstall ?? config.denyNetworkAfterInstall}`,
   );
+  console.log(`Blind mode: ${options.blind ? 'enabled' : 'disabled'}`);
+  console.log(`Inject fault: ${options.injectFault ? 'enabled' : 'disabled'}`);
 
   const report = await runFactory(request, config, options);
 

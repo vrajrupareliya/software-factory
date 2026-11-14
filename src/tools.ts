@@ -4,8 +4,14 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import { runSingleCheck, type CheckName } from './checks.js';
 
+export interface CheckCallRecord {
+  name: string;
+  exitCode: number;
+}
+
 export interface ToolCallTracker {
   counts: Record<string, number>;
+  checkCalls?: CheckCallRecord[];
 }
 
 export function validatePath(
@@ -274,12 +280,18 @@ export function createSandboxTools(
         console.log(
           `[tool:done] runCheck (${name}, exitCode=${res.exitCode}, ${Date.now() - started}ms)`,
         );
+        if (tracker?.checkCalls) {
+          tracker.checkCalls.push({ name, exitCode: res.exitCode });
+        }
         return {
           name,
           exitCode: res.exitCode,
           output: res.output,
         };
       } catch (err) {
+        if (tracker?.checkCalls) {
+          tracker.checkCalls.push({ name, exitCode: 1 });
+        }
         const msg = err instanceof Error ? err.message : String(err);
         return {
           name,
