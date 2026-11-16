@@ -45,6 +45,7 @@ TypeScript CLI that provisions an ephemeral Vercel Sandbox, clones a target repo
 | `DENY_NETWORK_AFTER_INSTALL` | No | Set to `true` to lock network after install (default: `false`) |
 | `GITHUB_TOKEN` | No | Optional GitHub token for clone authentication on private repositories |
 | `GITHUB_PR_TOKEN` | Only with `--pr` | Fine-grained GitHub personal access token with **Contents** (read & write) and **Pull requests** (read & write) permissions on the target fork only |
+| `BENCH_DELAY_SECONDS` | No | Pause duration in seconds between benchmark tickets (default: `20`) |
 
 ## Local Usage
 
@@ -90,6 +91,31 @@ TypeScript CLI that provisions an ephemeral Vercel Sandbox, clones a target repo
      --pr-dry-run          Print PR branch, commit message and body without calling GitHub
      -h, --help            Show help message
    ```
+
+5. Run the Benchmark Suite:
+   ```bash
+   pnpm bench
+   ```
+
+   Benchmark Options:
+   ```bash
+   pnpm bench [options]
+
+   Options:
+     --only <id>           Run only the specified ticket by ID from bench/tickets.json
+     --max-tickets <n>     Maximum number of tickets to run
+     --delay <seconds>     Pause seconds between tickets (default: 20 or BENCH_DELAY_SECONDS)
+     --repo <url>          Target Git repository URL
+     --ref <ref>           Target Git branch, commit, or tag
+     --max-rounds <n>      Maximum repair rounds per ticket
+     --skip-baseline       Skip baseline check suite run
+     --deny-network        Deny network in sandbox after installation
+     -h, --help            Show help message
+   ```
+
+   - **Tickets**: Stored in `bench/tickets.json` as `[{ id, task }]`. Seeded with 6 editable tickets.
+   - **Sequential Execution**: Runs tickets sequentially without opening pull requests. Pauses `BENCH_DELAY_SECONDS` (default: 20) between tickets. A failure in one ticket does not stop subsequent tickets.
+   - **Results**: Appends each ticket result row to `bench/results.md` and prints it (`id, outcome, rounds used, self-repairs, duration, tokens, CPU seconds, files changed`). Concludes with totals for pass rate, median duration, median tokens, and total CPU.
 
 ## Docker
 
