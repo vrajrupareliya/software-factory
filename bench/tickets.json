@@ -1,0 +1,26 @@
+[
+  {
+    "id": "ticket-1",
+    "task": "Add a testimonial document type with name, quote and author"
+  },
+  {
+    "id": "ticket-2",
+    "task": "Add an author document type with name, avatar image, and bio"
+  },
+  {
+    "id": "ticket-3",
+    "task": "Add a faq document type with question and answer fields"
+  },
+  {
+    "id": "ticket-4",
+    "task": "Add a category document type with title, slug, and description"
+  },
+  {
+    "id": "ticket-5",
+    "task": "Add a siteSettings document type with title, description, and logo"
+  },
+  {
+    "id": "ticket-6",
+    "task": "Add a callToAction object type with label, url, and style fields"
+  }
+]

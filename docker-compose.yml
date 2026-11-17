@@ -1,0 +1,31 @@
+services:
+  factory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: software-factory:latest
+    container_name: software-factory
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
+    volumes:
+      - ./runs:/app/runs
+    command: ["--help"]
+
+  bench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: software-factory:latest
+    container_name: software-factory-bench
+    entrypoint: ["node", "dist/bench.js"]
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
+    volumes:
+      - ./runs:/app/runs
+      - ./bench:/app/bench

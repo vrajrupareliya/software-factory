@@ -12,7 +12,11 @@
     "bench": "tsx src/bench.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "test": "node --import tsx --test test/bench.test.ts",
+    "typecheck": "tsc --noEmit",
+    "docker:build": "docker compose build",
+    "docker:run": "docker compose run --rm factory",
+    "docker:bench": "docker compose run --rm bench"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.120",
